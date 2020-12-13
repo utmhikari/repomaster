@@ -6,8 +6,8 @@ import (
 	handler "github.com/utmhikari/repomaster/internal/handler"
 )
 
-// Router gin router
-func Router() *gin.Engine {
+// router gin router
+func router() *gin.Engine {
 	r := gin.Default()
 	api := r.Group("/api")
 	v1 := api.Group("/v1")

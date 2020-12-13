@@ -3,18 +3,23 @@ package app
 import (
 	"log"
 	"net/http"
+	"strconv"
 )
 
-func StartApp() {
+// Config is the cfg template
+type Config struct {
+	Port int
+}
+
+// Start is the entry to start the web app
+func Start(config Config) error {
+	log.Printf("Start web app with config: %v\n", config)
 	log.Println("Register routers...")
-	router := Router()
+	router := router()
 	server := &http.Server{
-		Addr: ":8000",
+		Addr:    ":" + strconv.Itoa(config.Port),
 		Handler: router,
 	}
 	log.Println("Start server...")
-	err := server.ListenAndServe()
-	if err != nil{
-		panic(err)
-	}
+	return server.ListenAndServe()
 }
