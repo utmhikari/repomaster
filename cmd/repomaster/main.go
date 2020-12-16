@@ -3,9 +3,7 @@ package main
 import (
 	"github.com/urfave/cli/v2"
 	"github.com/utmhikari/repomaster/internal"
-	"github.com/utmhikari/repomaster/pkg/util"
 	"os"
-	"path"
 	"sort"
 )
 
@@ -17,20 +15,13 @@ func main() {
 			&cli.StringFlag{
 				Name:    "config",
 				Aliases: []string{"c"},
-				Value:   "repomaster",
+				Value:   "configs/repomaster.json",
 				Usage:   "Load config from json file in configs dir",
 			},
 		},
 		Action: func(c *cli.Context) error {
-			cfgPath := path.Join("configs", c.String("config")+".json")
-			appConfig := app.Config{
-				Port: 8000,
-			}
-			err := util.ReadJsonFile(cfgPath, &appConfig)
-			if err != nil {
-				return err
-			}
-			return app.Start(appConfig)
+			cfgPath := c.String("config")
+			return app.Start(cfgPath)
 		},
 	}
 
