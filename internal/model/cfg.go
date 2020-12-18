@@ -15,12 +15,17 @@ type Config struct {
 }
 
 // check validity of config instance
-func (c Config) Check() error{
+func (c *Config) Check() error{
 	// check port
 	if c.Port < 3000{
 		return errors.New(fmt.Sprintf("invalid port number: %d", c.Port))
 	}
 	// check repo root
+	absRepoRoot, absRepoRootErr := filepath.Abs(c.RepoRoot)
+	if absRepoRootErr != nil{
+		return errors.New(fmt.Sprintf("cannot get absolute path of repo root %s", c.RepoRoot))
+	}
+	c.RepoRoot = absRepoRoot
 	if !util.ExistsPath(c.RepoRoot){
 		err := os.Mkdir(c.RepoRoot, os.ModePerm)
 		if err != nil{
@@ -32,12 +37,8 @@ func (c Config) Check() error{
 	} else{
 		// check if the path is set as the root of the project
 		if absWd, absWdErr := filepath.Abs("."); absWdErr != nil{
-			if absRepoRoot, absRepoRootErr := filepath.Abs(c.RepoRoot); absRepoRootErr != nil{
-				if relRepoRoot, relRepoRootErr := filepath.Rel(absWd, absRepoRoot); relRepoRootErr != nil{
-					if relRepoRoot == "." || relRepoRoot == ""{
-						return errors.New("repo root is the working directory")
-					}
-				}
+			if c.RepoRoot == absWd{
+				return errors.New("repo root is the working directory")
 			}
 		}
 	}

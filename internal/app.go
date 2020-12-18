@@ -1,7 +1,8 @@
 package app
 
 import (
-	"github.com/utmhikari/repomaster/internal/service/cfg"
+	cfgService "github.com/utmhikari/repomaster/internal/service/cfg"
+	repoService "github.com/utmhikari/repomaster/internal/service/repo"
 	"log"
 	"net/http"
 	"strconv"
@@ -11,19 +12,21 @@ import (
 // Start is the entry to start the web app
 func Start(cfgPath string) error {
 	// init config
-	err := cfg.InitGlobalConfig(cfgPath)
+	err := cfgService.InitGlobalConfig(cfgPath)
 	if err != nil{
 		return err
 	}
-	log.Printf("Start repomaster app with config: %+v\n", cfg.GlobalCfg)
-	// init router
-	router := router()
+	log.Printf("Start repomaster app with config: %+v\n", cfgService.GlobalCfg)
+	// init web handler
+	webHandler := getWebHandler()
 	// init server
 	server := &http.Server{
-		Addr:    ":" + strconv.Itoa(cfg.GlobalCfg.Port),
-		Handler: router,
+		Addr:    ":" + strconv.Itoa(cfgService.GlobalCfg.Port),
+		Handler: webHandler,
 	}
-	// launch repo root
+	// refresh repos
+	repoService.Refresh()
+	// launch server
 	log.Println("Start repomaster server...")
 	return server.ListenAndServe()
 }
