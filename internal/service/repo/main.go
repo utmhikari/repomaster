@@ -2,7 +2,6 @@ package repo
 
 import (
 	"github.com/go-git/go-git/v5"
-	"github.com/utmhikari/repomaster/internal/model"
 	"github.com/utmhikari/repomaster/internal/service/cfg"
 	"github.com/utmhikari/repomaster/pkg/util"
 	"io/ioutil"
@@ -13,32 +12,126 @@ import (
 	"sync"
 )
 
-// TODO: gather all into a state instance?
-// State the runtime state of repo service
-type State struct{
-	mu sync.RWMutex
+// Type repo type
+type Type string
+
+const (
+	TypeUnknown Type = "unknown"
+	TypeGit     Type = "git"
+	TypeSvn     Type = "svn"
+)
+
+// IsValidType is type value valid
+func IsValidType(t string) bool {
+	return t == string(TypeGit) ||
+		t == string(TypeSvn)
 }
 
-// mu global mutex
+// Status repo status
+type Status string
+
+const (
+	StatusUnknown  Status = "unknown"
+	StatusError    Status = "error"
+	StatusUpdating Status = "updating"
+	StatusActive   Status = "active"
+)
+
+// IsValidStatus is status value valid
+func IsValidStatus(s string) bool {
+	return s == string(StatusActive) ||
+		s == string(StatusError) ||
+		s == string(StatusUpdating)
+}
+
+// Commit repo head commit info
+type Commit struct {
+	Hash    string
+	Ref     string
+	Message string
+	Author  string
+	Email   string
+}
+
+// Repo the info of a spefific repo
+type Repo struct {
+	// URL is the url of the repo of remote
+	URL string
+
+	// Type is the type of repo
+	Type Type
+
+	// Status is the current status of repo
+	Status Status
+
+	// Desc is the description of repo
+	Desc string
+
+	// Commit is the current commmit info of repo
+	Commit Commit
+}
+
+// SetStatus set status of repo instance
+func (r *Repo) SetStatus(status Status) {
+	switch status {
+	case StatusError:
+		r.Status = StatusError
+		break
+	case StatusActive:
+		r.Status = StatusActive
+		break
+	case StatusUpdating:
+		r.Status = StatusUpdating
+		break
+	default:
+		r.Status = StatusUnknown
+		break
+	}
+}
+
+// SetStatusError
+func (r *Repo) SetStatusError(errMsg string) {
+	r.SetStatus(StatusError)
+	r.Desc = errMsg
+}
+
+// SetType set type of repo
+func (r *Repo) SetType(repoType Type) {
+	switch repoType {
+	case TypeGit:
+		r.Type = TypeGit
+		break
+	case TypeSvn:
+		r.Type = TypeSvn
+		break
+	default:
+		r.Type = TypeUnknown
+		break
+	}
+}
+
+// mu global runtime mutex
 var mu sync.RWMutex
 
-
-// context stores the repo instance
-type context struct{
+// context the repo context in repomaster runtime
+type context struct {
+	// root the local root of repo
+	root string
+	// mu mutex to protect repo instance
 	mu sync.RWMutex
-	v model.Repo
+	// v the repo instance
+	v Repo
 }
 
 // cache stores the repo contexts
 var cache = make(map[uint64]*context)
 
-
 // GetRepo get info of repo
-func GetRepo(id uint64) *model.Repo{
+func GetRepo(id uint64) *Repo {
 	mu.RLock()
 	defer mu.RUnlock()
 	ctx, ok := cache[id]
-	if !ok{
+	if !ok {
 		return nil
 	}
 	ctx.mu.RLock()
@@ -47,32 +140,36 @@ func GetRepo(id uint64) *model.Repo{
 }
 
 // GetRepoRoot get the local root of repo by unique id
-func getRepoRoot(id uint64) string{
-	return filepath.Join(cfg.GlobalCfg.RepoRoot, strconv.FormatUint(id, 10))
+func getRepoRoot(id uint64) string {
+	return filepath.Join(cfg.Global().RepoRoot, strconv.FormatUint(id, 10))
 }
 
-// newContext create a new context by id, no lock
-func newContext(id uint64) {
+// createContext create a new context by id, no lock
+func createContext(id uint64, t Type, s Status) {
 	cache[id] = &context{
-		mu: sync.RWMutex{},
-		v: model.Repo{
-			ID:     id,
-			Type:   model.RepoTypeUnknown,
-			Status: model.RepoStatusUnknown,
-			Root:   getRepoRoot(id),
-			Commit: model.RepoCommit{},
+		root: getRepoRoot(id),
+		mu:   sync.RWMutex{},
+		v: Repo{
+			Type:   t,
+			Status: s,
+			Commit: Commit{},
 		},
 	}
 }
 
-// newContextID new a context id
-func newContextWithID() (*context, uint64) {
+// createDefaultContext create default repo context, with everything unknown
+func createDefaultContext(id uint64) {
+	createContext(id, TypeUnknown, StatusUnknown)
+}
+
+// requestNewContextWithID request a new context instance, with its ID
+func requestNewContextWithID(t Type, s Status) (*context, uint64) {
 	mu.Lock()
 	defer mu.Unlock()
 	var i uint64 = 1
-	for ; i <= math.MaxUint64; i++{
-		if _, ok := cache[i]; !ok{
-			newContext(i)
+	for ; i <= math.MaxUint64; i++ {
+		if _, ok := cache[i]; !ok {
+			createContext(i, t, s)
 			return cache[i], i
 		}
 	}
@@ -80,119 +177,68 @@ func newContextWithID() (*context, uint64) {
 }
 
 // getContext get context by id
-func getContext(id uint64) *context{
+func getContext(id uint64) *context {
 	mu.RLock()
 	defer mu.RUnlock()
 	ctx, _ := cache[id]
 	return ctx
 }
 
-// refreshContextOfGitRepo refresh context on git.Repository
-func refreshContextOfGitRepo(ctx *context, r *git.Repository){
-	if ctx == nil || r == nil{
-		return
-	}
-	ctx.mu.Lock()
-	defer ctx.mu.Unlock()
-	head, headErr := r.Head()
-	if headErr != nil || head == nil{
-		var errMsg string = "empty head"
-		if headErr != nil{
-			errMsg = headErr.Error()
-		}
-		log.Printf("failed to get head! %s", errMsg)
-		ctx.v.SetStatusError(errMsg)
-		return
-	}
-	ctx.v.Commit.Ref = head.Name().String()
-		headCommit, err := r.CommitObject(head.Hash())
-	if err != nil{
-		log.Printf("failed to get head commit! %s", err.Error())
-		ctx.v.SetStatusError(err.Error())
-		return
-	}
-	ctx.v.Commit.Hash = headCommit.Hash.String()
-	ctx.v.Commit.Message = headCommit.Message
-	ctx.v.Commit.Author = headCommit.Author.Name
-	ctx.v.Commit.Email = headCommit.Author.Email
-	ctx.v.Type = model.RepoTypeGit
-	ctx.v.Status = model.RepoStatusActive
-	log.Printf("Refreshed git repo %d: %+v\n", ctx.v.ID, ctx.v)
-}
-
-// NewGitRepo create a new git repo
-func NewGitRepo(options git.CloneOptions) error{
-	log.Printf("clone git repo with params %+v...\n", options)
-	ctx, id := newContextWithID()
-	go func(){
-		// before clone
-		ctx.mu.Lock()
-		ctx.v.URL = options.URL
-		ctx.v.Status = model.RepoStatusUpdating
-		ctx.v.Type = model.RepoTypeGit
-		ctx.mu.Unlock()
-		// clone
-		r, err := git.PlainClone(ctx.v.Root, false, &options)
-		if err != nil{
-			log.Printf("failed to clone git repo %d! %s\n", id, err.Error())
-			ctx.mu.Lock()
-			ctx.v.SetStatusError(err.Error())
-			ctx.v.SetStatusError(err.Error())
-			ctx.mu.Unlock()
-			return
-		}
-		// after cone
-		log.Printf("successfully cloned git repo %d!", id)
-		refreshContextOfGitRepo(ctx, r)
-	}()
-	return nil
-}
-
-
 // refreshContextByID initialize repo context by id
-func refreshContextByID(id uint64){
+func refreshContextByID(id uint64) {
 	ctx := getContext(id)
-	if ctx == nil{
+	if ctx == nil {
 		log.Printf("cannot refresh ctx %d as context is nil!\n", id)
 		return
 	}
+	// ignore updating contexts
+	if ctx.v.Status == StatusUpdating {
+		return
+	}
 	// try open as git repo
-	r, err := git.PlainOpen(ctx.v.Root)
-	if err != nil{
+	r, err := git.PlainOpen(ctx.root)
+	if err != nil {
 		log.Printf("cannot open ctx %d as a git repo! %s\n", id, err.Error())
-	} else{
+	} else {
 		refreshContextOfGitRepo(ctx, r)
 		return
 	}
 }
 
 // Refresh refresh the repo cache
-func Refresh(){
-	repoRoot := cfg.GlobalCfg.RepoRoot
-	log.Printf("refresh repo cache from root: %s\n", cfg.GlobalCfg.RepoRoot)
+func Refresh() {
+	repoRoot := cfg.Global().RepoRoot
+	log.Printf("refresh repo cache from root: %s\n", repoRoot)
 	mu.Lock()
 	defer mu.Unlock()
 	// list all files in repo root
 	files, filesErr := ioutil.ReadDir(repoRoot)
-	if filesErr != nil{
+	if filesErr != nil {
 		panic(filesErr)
 	}
 	// initialize contexts
-	for _, file := range files{
+	existedIDs := make(map[uint64]bool)
+	for _, file := range files {
 		filename := file.Name()
 		id, idErr := strconv.ParseUint(filename, 10, 64)
-		if idErr == nil{
+		if idErr == nil {
 			repoRoot := filepath.Join(repoRoot, filename)
-			if util.IsDirectory(repoRoot){
-				newContext(id)
-				log.Printf("initialized repo context %d\n", id)
+			if util.IsDirectory(repoRoot) {
+				if _, ok := cache[id]; !ok {
+					createDefaultContext(id)
+					log.Printf("created repo context %d\n", id)
+				}
+				existedIDs[id] = true
 			}
 		}
 	}
 	// refresh contexts
-	for id, _ := range cache{
-		go refreshContextByID(id)
+	for id, ctx := range cache {
+		if _, ok := existedIDs[id]; ok {
+			go refreshContextByID(id)
+		} else if !(ctx != nil && ctx.v.Status == StatusUpdating) {
+			log.Printf("context %d will be deleted as repo is empty...\n", id)
+			delete(cache, id)
+		}
 	}
 }
-
-

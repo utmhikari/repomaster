@@ -2,7 +2,7 @@ package main
 
 import (
 	"github.com/urfave/cli/v2"
-	"github.com/utmhikari/repomaster/internal"
+	"github.com/utmhikari/repomaster/internal/app"
 	"os"
 	"sort"
 )

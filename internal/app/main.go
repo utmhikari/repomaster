@@ -8,20 +8,20 @@ import (
 	"strconv"
 )
 
-
 // Start is the entry to start the web app
 func Start(cfgPath string) error {
 	// init config
 	err := cfgService.InitGlobalConfig(cfgPath)
-	if err != nil{
+	if err != nil {
 		return err
 	}
-	log.Printf("Start repomaster app with config: %+v\n", cfgService.GlobalCfg)
+	globalCfg := cfgService.Global()
+	log.Printf("Start repomaster app with config: %+v\n", globalCfg)
 	// init web handler
 	webHandler := getWebHandler()
 	// init server
 	server := &http.Server{
-		Addr:    ":" + strconv.Itoa(cfgService.GlobalCfg.Port),
+		Addr:    ":" + strconv.Itoa(globalCfg.Port),
 		Handler: webHandler,
 	}
 	// refresh repos

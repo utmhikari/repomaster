@@ -6,11 +6,10 @@ import (
 	"os"
 )
 
-
 // ExistsPath is path exist
-func ExistsPath(path string) bool{
-	if _, err := os.Stat(path); err != nil{
-		if os.IsNotExist(err){
+func ExistsPath(path string) bool {
+	if _, err := os.Stat(path); err != nil {
+		if os.IsNotExist(err) {
 			return false
 		}
 	}
@@ -18,16 +17,16 @@ func ExistsPath(path string) bool{
 }
 
 // IsDirectory is path a directory
-func IsDirectory(path string) bool{
-	if stat, err := os.Stat(path); err == nil && stat.IsDir(){
+func IsDirectory(path string) bool {
+	if stat, err := os.Stat(path); err == nil && stat.IsDir() {
 		return true
 	}
 	return false
 }
 
 // IsFile is path a file
-func IsFile(path string) bool{
-	if stat, err := os.Stat(path); err == nil && stat.Mode().IsRegular(){
+func IsFile(path string) bool {
+	if stat, err := os.Stat(path); err == nil && stat.Mode().IsRegular() {
 		return true
 	}
 	return false

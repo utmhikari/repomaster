@@ -12,13 +12,11 @@ func getWebHandler() *gin.Engine {
 	api := r.Group("/api")
 	v1 := api.Group("/v1")
 	{
-		base := v1.Group("/base")
+		v1.GET("/health", handler.HealthCheck)
+		repos := v1.Group("/repos")
 		{
-			base.GET("/health", handler.Base.HealthCheck)
-		}
-		repo := v1.Group("/repo/:id")
-		{
-			repo.GET("/info", handler.Repo.GetRepoInfoByID)
+			repos.GET("/:id", handler.Repo.GetByID)
+			repos.POST("/", handler.Repo.Create)
 		}
 	}
 	return r
