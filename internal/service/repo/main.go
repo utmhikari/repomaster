@@ -1,7 +1,6 @@
 package repo
 
 import (
-	"github.com/go-git/go-git/v5"
 	"github.com/utmhikari/repomaster/internal/service/cfg"
 	"github.com/utmhikari/repomaster/pkg/util"
 	"io/ioutil"
@@ -12,116 +11,6 @@ import (
 	"sync"
 )
 
-// Type repo type
-type Type string
-
-const (
-	TypeUnknown Type = "unknown"
-	TypeGit     Type = "git"
-	TypeSvn     Type = "svn"
-)
-
-// IsValidType is type value valid
-func IsValidType(t string) bool {
-	return t == string(TypeGit) ||
-		t == string(TypeSvn)
-}
-
-// Status repo status
-type Status string
-
-const (
-	StatusUnknown  Status = "unknown"
-	StatusError    Status = "error"
-	StatusUpdating Status = "updating"
-	StatusActive   Status = "active"
-)
-
-// IsValidStatus is status value valid
-func IsValidStatus(s string) bool {
-	return s == string(StatusActive) ||
-		s == string(StatusError) ||
-		s == string(StatusUpdating)
-}
-
-// Commit repo head commit info
-type Commit struct {
-	Hash    string
-	Ref     string
-	Message string
-	Author  string
-	Email   string
-}
-
-// Repo the info of a spefific repo
-type Repo struct {
-	// URL is the url of the repo of remote
-	URL string
-
-	// Type is the type of repo
-	Type Type
-
-	// Status is the current status of repo
-	Status Status
-
-	// Desc is the description of repo
-	Desc string
-
-	// Commit is the current commmit info of repo
-	Commit Commit
-}
-
-// SetStatus set status of repo instance
-func (r *Repo) SetStatus(status Status) {
-	switch status {
-	case StatusError:
-		r.Status = StatusError
-		break
-	case StatusActive:
-		r.Status = StatusActive
-		break
-	case StatusUpdating:
-		r.Status = StatusUpdating
-		break
-	default:
-		r.Status = StatusUnknown
-		break
-	}
-}
-
-// SetStatusError
-func (r *Repo) SetStatusError(errMsg string) {
-	r.SetStatus(StatusError)
-	r.Desc = errMsg
-}
-
-// SetType set type of repo
-func (r *Repo) SetType(repoType Type) {
-	switch repoType {
-	case TypeGit:
-		r.Type = TypeGit
-		break
-	case TypeSvn:
-		r.Type = TypeSvn
-		break
-	default:
-		r.Type = TypeUnknown
-		break
-	}
-}
-
-// mu global runtime mutex
-var mu sync.RWMutex
-
-// context the repo context in repomaster runtime
-type context struct {
-	// root the local root of repo
-	root string
-	// mu mutex to protect repo instance
-	mu sync.RWMutex
-	// v the repo instance
-	v Repo
-}
 
 // cache stores the repo contexts
 var cache = make(map[uint64]*context)
@@ -184,7 +73,7 @@ func getContext(id uint64) *context {
 	return ctx
 }
 
-// refreshContextByID initialize repo context by id
+// refreshContextByID refresh repo context by id
 func refreshContextByID(id uint64) {
 	ctx := getContext(id)
 	if ctx == nil {
@@ -195,14 +84,7 @@ func refreshContextByID(id uint64) {
 	if ctx.v.Status == StatusUpdating {
 		return
 	}
-	// try open as git repo
-	r, err := git.PlainOpen(ctx.root)
-	if err != nil {
-		log.Printf("cannot open ctx %d as a git repo! %s\n", id, err.Error())
-	} else {
-		refreshContextOfGitRepo(ctx, r)
-		return
-	}
+	ctx.refreshGitRepo()
 }
 
 // Refresh refresh the repo cache

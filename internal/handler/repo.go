@@ -23,42 +23,44 @@ func (_ *repo) GetByID(c *gin.Context) {
 	}
 	r := repoService.GetRepo(id)
 	if r == nil {
-		Error(c, Response{
-			Message: fmt.Sprintf("cannot get repo of id %d", id),
-		})
+		ErrorMsgResponse(c, fmt.Sprintf("cannot get repo of id %d", id))
 		return
 	}
-	SuccessResponse(c, *r)
+	SuccessDataResponse(c, *r)
 }
 
-// Create create a new repo
-func (_ *repo) Create(c *gin.Context) {
-	var request models.RepoCreateRequest
+// CreateGit create a new git repo
+func (_ *repo) CreateGit(c *gin.Context) {
+	var request models.GitRepoCreateRequest
 	if err := c.ShouldBindJSON(&request); err != nil {
 		ErrorResponse(c, err)
 		return
 	}
-	if !repoService.IsValidType(request.Type) {
-		Error(c, Response{
-			Message: fmt.Sprintf("invalid repo type %s", request.Type),
-		})
+	if request.Type != string(repoService.TypeGit) {
+		ErrorMsgResponse(c, fmt.Sprintf("invalid repo type %s", request.Type))
 		return
 	}
-	if request.Type == string(repoService.TypeGit) {
-		gitOptions := request.Options.ToGitCloneOptions()
-		if gitOptions == nil {
-			Error(c, Response{
-				Message: "cannot get clone options for git repo",
-			})
-			return
-		}
-		repoID := repoService.CreateGitRepo(*gitOptions)
-		Success(c, Response{
-			Message: fmt.Sprintf("launched git clone at repo %d", repoID),
-		})
+	gitOptions := request.Options.ToCloneOptions()
+	if gitOptions == nil {
+		ErrorMsgResponse(c, "cannot get clone options for git repo")
 		return
 	}
-	Error(c, Response{
-		Message: fmt.Sprintf("unsupported repo type %s", request.Type),
-	})
+	repoID := repoService.CreateGitRepo(gitOptions, request.Version)
+	SuccessMsgResponse(c, fmt.Sprintf("launched git clone at repo %d", repoID))
+}
+
+// UpdateGit update an existed git repo
+func (_ *repo) UpdateGit(c *gin.Context){
+	var request models.GitRepoUpdateRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		ErrorResponse(c, err)
+		return
+	}
+	checkUpdateErr := repoService.UpdateGitRepo(
+		request.ID, request.Version, request.Auth.ToAuthMethod())
+	if checkUpdateErr != nil{
+		ErrorResponse(c, checkUpdateErr)
+		return
+	}
+	SuccessMsgResponse(c, "launched checkout")
 }

@@ -25,8 +25,13 @@ func Success(c *gin.Context, resp Response) {
 	})
 }
 
-// SuccessResponse fast way to make success response
-func SuccessResponse(c *gin.Context, data interface{}) {
+// SuccessMsgResponse fast way to make success response with msg
+func SuccessMsgResponse(c *gin.Context, msg string) {
+	Success(c, Response{Message: msg})
+}
+
+// SuccessDataResponse fast way to make success response with data
+func SuccessDataResponse(c *gin.Context, data interface{}) {
 	Success(c, Response{Data: data})
 }
 
@@ -42,6 +47,12 @@ func Error(c *gin.Context, resp Response) {
 		"code":    resp.Code,
 	})
 }
+
+// ErrorMsgResponse fast wat to make error response with msg string
+func ErrorMsgResponse(c *gin.Context, errMsg string) {
+	Error(c, Response{Message: errMsg})
+}
+
 
 // ErrorResponse fast way to make error response
 func ErrorResponse(c *gin.Context, err error) {

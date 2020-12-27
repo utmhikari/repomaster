@@ -16,7 +16,12 @@ func getWebHandler() *gin.Engine {
 		repos := v1.Group("/repos")
 		{
 			repos.GET("/:id", handler.Repo.GetByID)
-			repos.POST("/", handler.Repo.Create)
+
+		}
+		repo := v1.Group("/repo")
+		{
+			repo.POST("/git", handler.Repo.CreateGit)
+			repo.PUT("/git", handler.Repo.UpdateGit)
 		}
 	}
 	return r
