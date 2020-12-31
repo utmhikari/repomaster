@@ -53,7 +53,6 @@ func ErrorMsgResponse(c *gin.Context, errMsg string) {
 	Error(c, Response{Message: errMsg})
 }
 
-
 // ErrorResponse fast way to make error response
 func ErrorResponse(c *gin.Context, err error) {
 	Error(c, Response{Message: err.Error()})

@@ -36,33 +36,38 @@ func IsValidStatus(s string) bool {
 
 // Commit repo head commit info
 type Commit struct {
-	Hash    string
-	Ref     string
-	Message string
-	Author  string
-	Email   string
+	Hash    string `json:"hash"`
+	Ref     string `json:"ref"`
+	Message string `json:"message"`
+	Author  string `json:"author"`
+	Email   string `json:"email"`
 }
 
 // Repo the info of a spefific repo
 type Repo struct {
 	// URL is the url of the repo of remote
-	URL string
+	URL string `json:"url"`
 
 	// Type is the type of repo
-	Type Type
+	Type Type `json:"type"`
 
 	// Status is the current status of repo
-	Status Status
+	Status Status `json:"status"`
 
 	// Desc is the description of repo
-	Desc string
+	Desc string `json:"desc"`
 
 	// Commit is the current commmit info of repo
-	Commit Commit
+	Commit Commit `json:"commit"`
+}
+
+// IsActive is in active status
+func (r *Repo) IsActive() bool {
+	return r.Status == StatusActive
 }
 
 // IsStatusNormal is status in normal state
-func (r *Repo) IsStatusNormal() bool{
+func (r *Repo) IsStatusNormal() bool {
 	return r.Status == StatusUpdating || r.Status == StatusActive
 }
 
@@ -135,5 +140,3 @@ func (c *context) IsRepoStatusNormal() bool {
 	defer c.mu.RUnlock()
 	return c.v.IsStatusNormal()
 }
-
-

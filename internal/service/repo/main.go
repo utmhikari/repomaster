@@ -7,13 +7,35 @@ import (
 	"log"
 	"math"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"sync"
 )
 
-
 // cache stores the repo contexts
 var cache = make(map[uint64]*context)
+
+// CacheItem cache id and its repo info
+type CacheItem struct {
+	ID   uint64 `json:"id"`
+	Repo Repo   `json:"repo"`
+}
+
+// GetCacheSnapshot get snapshot of the cache
+func GetCacheSnapshot() []CacheItem {
+	var cacheSnapshot []CacheItem
+	for id, ctx := range cache {
+		repoCopy := ctx.v
+		cacheSnapshot = append(cacheSnapshot, CacheItem{
+			ID:   id,
+			Repo: repoCopy,
+		})
+	}
+	sort.Slice(cacheSnapshot, func(i, j int) bool {
+		return cacheSnapshot[i].ID < cacheSnapshot[j].ID
+	})
+	return cacheSnapshot
+}
 
 // GetRepo get info of repo
 func GetRepo(id uint64) *Repo {
@@ -26,6 +48,21 @@ func GetRepo(id uint64) *Repo {
 	ctx.mu.RLock()
 	defer ctx.mu.RUnlock()
 	return &ctx.v
+}
+
+// FindRepoByHash get info of repo by specific url and hash
+func FindRepoByHash(t Type, url string, hash string) (uint64, *Repo) {
+	for id, ctx := range cache {
+		// make a copy, no need to lock
+		repoCopy := ctx.v
+		if repoCopy.Status == StatusActive &&
+			repoCopy.Type == t &&
+			repoCopy.URL == url &&
+			repoCopy.Commit.Hash == hash {
+			return id, &repoCopy
+		}
+	}
+	return 0, nil
 }
 
 // GetRepoRoot get the local root of repo by unique id
@@ -84,7 +121,18 @@ func refreshContextByID(id uint64) {
 	if ctx.v.Status == StatusUpdating {
 		return
 	}
-	ctx.refreshGitRepo()
+	if _, err := ctx.getGitRepo(); err == nil {
+		ctx.refreshGitRepo()
+	} else {
+		ctx.SetRepoStatusError("unrecognized repo")
+	}
+}
+
+// deleteContext delete a context
+func deleteContext(id uint64) {
+	mu.Lock()
+	defer mu.Unlock()
+	delete(cache, id)
 }
 
 // Refresh refresh the repo cache
@@ -104,8 +152,8 @@ func Refresh() {
 		filename := file.Name()
 		id, idErr := strconv.ParseUint(filename, 10, 64)
 		if idErr == nil {
-			repoRoot := filepath.Join(repoRoot, filename)
-			if util.IsDirectory(repoRoot) {
+			repoRootDir := filepath.Join(repoRoot, filename)
+			if util.IsDirectory(repoRootDir) {
 				if _, ok := cache[id]; !ok {
 					createDefaultContext(id)
 					log.Printf("created repo context %d\n", id)
@@ -120,7 +168,7 @@ func Refresh() {
 			go refreshContextByID(id)
 		} else if !(ctx != nil && ctx.v.Status == StatusUpdating) {
 			log.Printf("context %d will be deleted as repo is empty...\n", id)
-			delete(cache, id)
+			go deleteContext(id)
 		}
 	}
 }

@@ -17,9 +17,12 @@ func getWebHandler() *gin.Engine {
 		{
 			repos.GET("/:id", handler.Repo.GetByID)
 
+			repos.POST("/:id/file", handler.Repo.GetFileInfo)
 		}
 		repo := v1.Group("/repo")
 		{
+			repo.GET("/snapshot", handler.Repo.GetSnapshot)
+			repo.POST("/hash", handler.Repo.GetByHash)
 			repo.POST("/git", handler.Repo.CreateGit)
 			repo.PUT("/git", handler.Repo.UpdateGit)
 		}

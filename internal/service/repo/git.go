@@ -11,42 +11,54 @@ import (
 	"log"
 )
 
+// getGitRepo
+func (c *context) getGitRepo() (*git.Repository, error) {
+	if c.root == "" {
+		return nil, errors.New("cannot get git repo root")
+	}
+	gitRepo, err := git.PlainOpen(c.root)
+	if err != nil {
+		return nil, err
+	}
+	return gitRepo, nil
+}
+
 // refreshGitRepo refresh context
-func (c *context) refreshGitRepo() {
+func (c *context) refreshGitRepo() bool {
 	refreshErrPrefix := fmt.Sprintf("cannot refresh %s as git repo! ", c.root)
 	// open repo
-	r, err := git.PlainOpen(c.root)
-	if err != nil{
+	r, err := c.getGitRepo()
+	if err != nil {
 		log.Printf("%s%s\n", refreshErrPrefix, err.Error())
 		c.SetRepoStatusError(err.Error())
-		return
+		return false
 	}
 	// refresh data
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.v.URL == "" {
 		remote, remoteErr := r.Remote("origin")
-		if remoteErr != nil{
+		if remoteErr != nil {
 			log.Printf("failed to get remote origin! %s", remoteErr.Error())
 			c.v.SetStatusError(remoteErr.Error())
-			return
+			return false
 		}
 		remoteCfg := remote.Config()
-		if remoteCfg == nil{
+		if remoteCfg == nil {
 			log.Printf("failed to get config of remote origin!")
 			c.v.SetStatusError("cannot get remote origin cfg")
-			return
+			return false
 		}
-		for _, remoteURL := range remoteCfg.URLs{
-			if remoteURL != ""{
+		for _, remoteURL := range remoteCfg.URLs {
+			if remoteURL != "" {
 				c.v.URL = remoteURL
 				break
 			}
 		}
-		if c.v.URL == ""{
+		if c.v.URL == "" {
 			log.Printf("failed to get url from remote origin!")
 			c.v.SetStatusError("cannot get remote origin url")
-			return
+			return false
 		}
 	}
 	head, headErr := r.Head()
@@ -57,14 +69,14 @@ func (c *context) refreshGitRepo() {
 		}
 		log.Printf("%sfailed to get head, %s", refreshErrPrefix, errMsg)
 		c.v.SetStatusError(errMsg)
-		return
+		return false
 	}
 	c.v.Commit.Ref = head.Name().String()
 	headCommit, err := r.CommitObject(head.Hash())
 	if err != nil {
 		log.Printf("%sfailed to get head commit, %s", refreshErrPrefix, err.Error())
 		c.v.SetStatusError(err.Error())
-		return
+		return false
 	}
 	c.v.Commit.Hash = headCommit.Hash.String()
 	c.v.Commit.Message = headCommit.Message
@@ -73,32 +85,34 @@ func (c *context) refreshGitRepo() {
 	c.v.Type = TypeGit
 	c.v.Status = StatusActive
 	log.Printf("refreshed %s as git repo: %+v\n", c.root, c.v)
+	return true
 }
 
-// checkoutGitRepo checkout git repo to specific version
-func (c *context) checkoutGitRepo(version models.GitVersion, auth transport.AuthMethod, isNeededCleanUp bool) {
+// checkoutGitRepo checkout git repo to specific revision
+func (c *context) checkoutGitRepo(
+	revision models.GitRevision, auth transport.AuthMethod, isNeededCleanUp bool) bool {
 	// check current status
-	if !c.IsRepoStatusNormal(){
+	if !c.IsRepoStatusNormal() {
 		curStatus := c.v.Status
 		log.Printf("failed to checkout repo at %s! current status is %s\n",
 			c.root, string(curStatus))
-		return
+		return false
 	}
 	c.SetRepoStatus(StatusUpdating)
-	log.Printf("checkout repo at %s to version %+v...\n", c.root, version)
+	log.Printf("checkout repo at %s to revision %+v...\n", c.root, revision)
 	// init git repo worktree instance
 	r, err := git.PlainOpen(c.root)
-	if err != nil{
+	if err != nil {
 		log.Printf("failed to checkout repo at %s! cannot open repo! %s\n",
 			c.root, err.Error())
 		c.SetRepoStatusError(err.Error())
-		return
+		return false
 	}
 	w, err := r.Worktree()
-	if err != nil{
+	if err != nil {
 		log.Printf("failed to get worktree of repo %s! %s\n", c.root, err.Error())
 		c.SetRepoStatusError(err.Error())
-		return
+		return false
 	}
 	// check if cleanup is needed
 	if isNeededCleanUp {
@@ -109,111 +123,127 @@ func (c *context) checkoutGitRepo(version models.GitVersion, auth transport.Auth
 			Name: "origin",
 			URLs: []string{c.v.URL},
 		})
-		if remoteErr != nil{
+		if remoteErr != nil {
 			log.Printf("failed to reset remote origin of repo %s! %s\n",
 				c.root, remoteErr.Error())
 			c.SetRepoStatusError(remoteErr.Error())
-			return
+			return false
 		}
 		// reset --hard
 		resetErr := w.Reset(&git.ResetOptions{
-			Mode:   git.HardReset,
+			Mode: git.HardReset,
 		})
-		if resetErr != nil{
+		if resetErr != nil {
 			log.Printf("failed to reset hard at repo %s! %s\n", c.root, resetErr.Error())
 			c.SetRepoStatusError(resetErr.Error())
-			return
+			return false
 		}
 		// clean -df
 		cleanErr := w.Clean(&git.CleanOptions{
 			Dir: true,
 		})
-		if cleanErr != nil{
+		if cleanErr != nil {
 			log.Printf("failed to clean repo at %s! %s\n", c.root, cleanErr.Error())
 			c.SetRepoStatusError(cleanErr.Error())
-			return
+			return false
 		}
 	}
 	// pull newest
 	log.Printf("pull repo %s from URL %s...\n", c.root, c.v.URL)
 	var pullErr error = nil
-	if auth == nil{
+	if auth == nil {
 		log.Printf("warning! pulling repo %s at %s with no authentication!\n", c.root, c.v.URL)
 		pullErr = w.Pull(&git.PullOptions{})
-	} else{
+	} else {
 		pullErr = w.Pull(&git.PullOptions{Auth: auth})
 	}
-	if pullErr != nil && pullErr != git.NoErrAlreadyUpToDate{
+	if pullErr != nil && pullErr != git.NoErrAlreadyUpToDate {
 		log.Printf("failed to pull git repo %s --- %s\n", c.root, pullErr.Error())
 		c.SetRepoStatusError(pullErr.Error())
-		return
+		return false
 	}
 	// checkout priority: commit hash > tag > branch
 	// no need to set master as default branch
 	var checkoutErr error = nil
-	if version.Hash != ""{
+	if revision.Hash != "" {
 		checkoutErr = w.Checkout(&git.CheckoutOptions{
-			Hash: plumbing.NewHash(version.Hash),
+			Hash:  plumbing.NewHash(revision.Hash),
 			Force: true,
 		})
-	} else if version.Tag != ""{
+	} else if revision.Tag != "" {
 		checkoutErr = w.Checkout(&git.CheckoutOptions{
-			Branch: plumbing.NewTagReferenceName(version.Branch),
-			Force: true,
+			Branch: plumbing.NewTagReferenceName(revision.Branch),
+			Force:  true,
 		})
-	} else if version.Branch != ""{
+	} else if revision.Branch != "" {
 		checkoutErr = w.Checkout(&git.CheckoutOptions{
-			Branch: plumbing.NewBranchReferenceName(version.Branch),
-			Force: true,
+			Branch: plumbing.NewBranchReferenceName(revision.Branch),
+			Force:  true,
 		})
 	}
-	if checkoutErr != nil{
-		log.Printf("failed to checkout repo at %s to version %+v! %s\n",
-			c.root, version, checkoutErr.Error())
+	if checkoutErr != nil {
+		log.Printf("failed to checkout repo at %s to revision %+v! %s\n",
+			c.root, revision, checkoutErr.Error())
 		c.SetRepoStatusError(checkoutErr.Error())
-		return
+		return false
 	}
-	log.Printf("successfully checkout repo at %s to version %+v...\n",
-		c.root, version)
+	log.Printf("successfully checkout repo at %s to revision %+v...\n",
+		c.root, revision)
 	// refresh info
-	c.refreshGitRepo()
+	return c.refreshGitRepo()
+}
+
+// createGitRepo create git repo
+func createGitRepo(ctx *context, options *git.CloneOptions, revision models.GitRevision) bool {
+	// before clone
+	ctx.mu.Lock()
+	ctx.v.URL = options.URL
+	ctx.mu.Unlock()
+	// clone
+	_, err := git.PlainClone(ctx.root, false, options)
+	if err != nil {
+		log.Printf("failed to clone git repo to %s --- %s", ctx.root, err.Error())
+		ctx.SetRepoStatusError(err.Error())
+		return false
+	}
+	log.Printf("successfully cloned git repo to %s", ctx.root)
+	// checkout
+	return ctx.checkoutGitRepo(revision, options.Auth, false)
 }
 
 // CreateGitRepo create a new git repo, returns the context id
-func CreateGitRepo(options *git.CloneOptions, version models.GitVersion) uint64 {
-	if options == nil{
+func CreateGitRepo(options *git.CloneOptions, revision models.GitRevision, isSync bool) uint64 {
+	if options == nil {
 		return 0
 	}
 	log.Printf("clone git repo with params %+v...\n", options)
 	// request new context with updating status, so that the context wouldn't be gced
 	ctx, id := requestNewContextWithID(TypeGit, StatusUpdating)
-	go func() {
-		// before clone
-		ctx.mu.Lock()
-		ctx.v.URL = options.URL
-		ctx.mu.Unlock()
-		// clone
-		_, err := git.PlainClone(ctx.root, false, options)
-		if err != nil {
-			log.Printf("failed to clone git repo %d! %s\n", id, err.Error())
-			ctx.SetRepoStatusError(err.Error())
-			return
+	if isSync {
+		if !createGitRepo(ctx, options, revision) {
+			// create failed
+			return 0
 		}
-		log.Printf("successfully cloned git repo %d!", id)
-		// checkout
-		ctx.checkoutGitRepo(version, options.Auth, false)
-	}()
+	} else {
+		go createGitRepo(ctx, options, revision)
+	}
 	return id
 }
 
 // UpdateGitRepo update an existed git repo
-func UpdateGitRepo(id uint64, version models.GitVersion, auth transport.AuthMethod) error {
+func UpdateGitRepo(id uint64, revision models.GitRevision, auth transport.AuthMethod, isSync bool) error {
 	ctx := getContext(id)
-	if ctx == nil{
+	if ctx == nil {
 		return errors.New(fmt.Sprintf("cannot get repo with ID %d", id))
 	}
-	go func(){
-		ctx.checkoutGitRepo(version, auth, true)
-	}()
+	if isSync {
+		if !ctx.checkoutGitRepo(revision, auth, true) {
+			return errors.New("checkout git repo failed")
+		}
+	} else {
+		go func() {
+			ctx.checkoutGitRepo(revision, auth, true)
+		}()
+	}
 	return nil
 }
