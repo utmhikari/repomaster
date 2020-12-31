@@ -13,8 +13,7 @@ const (
 
 // IsValidType is type value valid
 func IsValidType(t string) bool {
-	return t == string(TypeGit) ||
-		t == string(TypeSvn)
+	return t == string(TypeGit) || t == string(TypeSvn)
 }
 
 // Status repo status
@@ -76,9 +75,6 @@ func (r *Repo) SetStatusError(errMsg string) {
 	r.Status = StatusError
 	r.Desc = errMsg
 }
-
-// mu global runtime mutex
-var mu sync.RWMutex
 
 // context the repo context in repomaster runtime
 type context struct {

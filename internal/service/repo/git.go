@@ -11,6 +11,9 @@ import (
 	"log"
 )
 
+// DefaultGitRemote origin
+var DefaultGitRemote = "origin"
+
 // getGitRepo
 func (c *context) getGitRepo() (*git.Repository, error) {
 	if c.root == "" {
@@ -37,7 +40,7 @@ func (c *context) refreshGitRepo() bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.v.URL == "" {
-		remote, remoteErr := r.Remote("origin")
+		remote, remoteErr := r.Remote(DefaultGitRemote)
 		if remoteErr != nil {
 			log.Printf("failed to get remote origin! %s", remoteErr.Error())
 			c.v.SetStatusError(remoteErr.Error())
@@ -45,8 +48,8 @@ func (c *context) refreshGitRepo() bool {
 		}
 		remoteCfg := remote.Config()
 		if remoteCfg == nil {
-			log.Printf("failed to get config of remote origin!")
-			c.v.SetStatusError("cannot get remote origin cfg")
+			log.Printf("failed to get config of remote!")
+			c.v.SetStatusError("cannot get remote cfg")
 			return false
 		}
 		for _, remoteURL := range remoteCfg.URLs {
@@ -56,8 +59,8 @@ func (c *context) refreshGitRepo() bool {
 			}
 		}
 		if c.v.URL == "" {
-			log.Printf("failed to get url from remote origin!")
-			c.v.SetStatusError("cannot get remote origin url")
+			log.Printf("failed to get url from remote!")
+			c.v.SetStatusError("cannot get remote url")
 			return false
 		}
 	}
@@ -114,56 +117,75 @@ func (c *context) checkoutGitRepo(
 		c.SetRepoStatusError(err.Error())
 		return false
 	}
+	defer c.refreshGitRepo()
 	// check if cleanup is needed
 	if isNeededCleanUp {
 		log.Printf("cleaning up repo at %s...\n", c.root)
-		// reset remote origin as original URL
-		_ = r.DeleteRemote("origin")
+		// reset remote origin
+		_ = r.DeleteRemote(DefaultGitRemote)
 		_, remoteErr := r.CreateRemote(&config.RemoteConfig{
-			Name: "origin",
+			Name: DefaultGitRemote,
 			URLs: []string{c.v.URL},
 		})
 		if remoteErr != nil {
-			log.Printf("failed to reset remote origin of repo %s! %s\n",
+			log.Printf("failed to reset remote of repo %s! %s\n",
 				c.root, remoteErr.Error())
-			c.SetRepoStatusError(remoteErr.Error())
 			return false
 		}
+		log.Printf("successfully reset remote %s of repo %s\n", DefaultGitRemote, c.root)
 		// reset --hard
-		resetErr := w.Reset(&git.ResetOptions{
-			Mode: git.HardReset,
-		})
+		var resetErr error = nil
+		head, headErr := r.Head()
+		if headErr != nil {
+			log.Printf("warning, cannot get head ref of repo %s\n", c.root)
+			resetErr = w.Reset(&git.ResetOptions{
+				Mode: git.HardReset,
+			})
+		} else {
+			resetErr = w.Reset(&git.ResetOptions{
+				Commit: head.Hash(),
+				Mode: git.HardReset,
+			})
+		}
 		if resetErr != nil {
 			log.Printf("failed to reset hard at repo %s! %s\n", c.root, resetErr.Error())
-			c.SetRepoStatusError(resetErr.Error())
 			return false
 		}
+		log.Printf("successfully reset hard at repo %s\n", c.root)
 		// clean -df
+		// TODO: clean all? reset all?
 		cleanErr := w.Clean(&git.CleanOptions{
 			Dir: true,
 		})
 		if cleanErr != nil {
 			log.Printf("failed to clean repo at %s! %s\n", c.root, cleanErr.Error())
-			c.SetRepoStatusError(cleanErr.Error())
 			return false
 		}
+		log.Printf("successfully cleaned files at repo %s\n", c.root)
 	}
 	// pull newest
 	log.Printf("pull repo %s from URL %s...\n", c.root, c.v.URL)
 	var pullErr error = nil
 	if auth == nil {
-		log.Printf("warning! pulling repo %s at %s with no authentication!\n", c.root, c.v.URL)
-		pullErr = w.Pull(&git.PullOptions{})
+		log.Printf("warning! pulling repo %s from %s with no authentication!\n", c.root, c.v.URL)
+		pullErr = w.Pull(&git.PullOptions{
+			RemoteName: DefaultGitRemote,
+		})
 	} else {
-		pullErr = w.Pull(&git.PullOptions{Auth: auth})
+		pullErr = w.Pull(&git.PullOptions{
+			RemoteName: DefaultGitRemote,
+			Auth: auth,
+		})
 	}
 	if pullErr != nil && pullErr != git.NoErrAlreadyUpToDate {
 		log.Printf("failed to pull git repo %s --- %s\n", c.root, pullErr.Error())
-		c.SetRepoStatusError(pullErr.Error())
 		return false
+	} else {
+		log.Printf("pull repo %s successfully\n", c.root)
 	}
 	// checkout priority: commit hash > tag > branch
 	// no need to set master as default branch
+	// TODO: the value of tag/branch? sliced commit hash?
 	var checkoutErr error = nil
 	if revision.Hash != "" {
 		checkoutErr = w.Checkout(&git.CheckoutOptions{
@@ -184,13 +206,12 @@ func (c *context) checkoutGitRepo(
 	if checkoutErr != nil {
 		log.Printf("failed to checkout repo at %s to revision %+v! %s\n",
 			c.root, revision, checkoutErr.Error())
-		c.SetRepoStatusError(checkoutErr.Error())
 		return false
 	}
 	log.Printf("successfully checkout repo at %s to revision %+v...\n",
 		c.root, revision)
 	// refresh info
-	return c.refreshGitRepo()
+	return true
 }
 
 // createGitRepo create git repo
@@ -219,6 +240,7 @@ func CreateGitRepo(options *git.CloneOptions, revision models.GitRevision, isSyn
 	log.Printf("clone git repo with params %+v...\n", options)
 	// request new context with updating status, so that the context wouldn't be gced
 	ctx, id := requestNewContextWithID(TypeGit, StatusUpdating)
+	// TODO: trace clone/pull/checkout progress
 	if isSync {
 		if !createGitRepo(ctx, options, revision) {
 			// create failed
